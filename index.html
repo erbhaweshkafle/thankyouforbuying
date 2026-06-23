@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GURKHA | The Golden Edition</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Three.js for 3D Golden Card -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    
+    <!-- PageFlip JS for Booklet effect -->
+    <script src="https://cdn.jsdelivr.net/npm/page-flip/dist/js/page-flip.browser.min.js"></script>
+    
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700;900&family=Inter:wght@300;400;500;700;900&family=Playfair+Display:ital,wght@0,700;1,400&display=swap" rel="stylesheet">
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        gurkha: {
+                            black: '#030303',
+                            dark: '#0a0a0a',
+                            green: '#081c15', 
+                            gold: '#d4af37',
+                            goldlight: '#f9df9f',
+                            golddark: '#997a00',
+                            paper: '#f4f1ea',
+                            paperdark: '#e3dfd3'
+                        }
+                    },
+                    fontFamily: {
+                        serif: ['Cinzel', 'serif'],
+                        sans: ['Inter', 'sans-serif'],
+                        editorial: ['Playfair Display', 'serif']
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        :root { --book-shadow: rgba(0, 0, 0, 0.4); }
+        body { margin: 0; overflow: hidden; background-color: #030303; color: #fff; font-family: 'Inter', sans-serif; -webkit-font-smoothing: antialiased; }
+        
+        /* Noise Overlay for background */
+        body::before {
+            content: ''; position: fixed; inset: 0; z-index: 1; pointer-events: none; opacity: 0.03;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+        }
+
+        /* VIP Loader */
+        #loader {
+            position: fixed; inset: 0; z-index: 50; background: #030303;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            transition: opacity 1s cubic-bezier(0.8, 0, 0.2, 1);
+        }
+        .scan-line {
+            width: 2px; height: 60px; background: #d4af37;
+            animation: scan 1.5s ease-in-out infinite; box-shadow: 0 0 15px #d4af37;
+        }
+        @keyframes scan { 0%, 100% { transform: translateY(-20px); opacity: 0; } 50% { transform: translateY(20px); opacity: 1; } }
+
+        /* 3D Canvas Layer */
+        #canvas-container { 
+            position: absolute; inset: 0; z-index: 10;
+            transition: opacity 1.2s ease, transform 1.5s cubic-bezier(0.19, 1, 0.22, 1); 
+            cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center;
+            background: radial-gradient(circle at center, #1a1a1a 0%, #030303 100%);
+        }
+        
+        .tap-to-open {
+            position: absolute; bottom: 12%; z-index: 11; display: flex; flex-direction: column; align-items: center;
+            animation: float 3s ease-in-out infinite;
+        }
+        .mouse-icon {
+            width: 20px; height: 32px; border: 1px solid #d4af37; border-radius: 12px; position: relative; margin-bottom: 12px;
+        }
+        .mouse-wheel {
+            width: 2px; height: 6px; background: #d4af37; position: absolute; top: 6px; left: 50%; transform: translateX(-50%);
+            animation: scroll 2s infinite; border-radius: 2px;
+        }
+
+        @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+        @keyframes scroll { 0% { top: 6px; opacity: 1; } 100% { top: 16px; opacity: 0; } }
+
+        /* Flipbook System */
+        #flipbook-wrapper { 
+            position: absolute; inset: 0; z-index: 5; 
+            display: flex; justify-content: center; align-items: center; 
+            background: url('https://images.unsplash.com/photo-1598960855359-9943fcf44f56?auto=format&fit=crop&w=1920&q=80') center/cover no-repeat;
+            opacity: 0; pointer-events: none; transition: opacity 1.5s ease;
+            padding: 20px; /* Safe area */
+        }
+        #flipbook-wrapper::before { content: ''; position: absolute; inset: 0; background: rgba(3, 3, 3, 0.9); backdrop-filter: blur(20px); }
+
+        .page { 
+            background-color: #f4f1ea; color: #111; overflow: hidden; position: relative;
+            /* Prevents bleeding of child elements during 3D flip */
+            transform-style: preserve-3d;
+        }
+        
+        /* Realistic Book Crease / Shadow */
+        .page::after {
+            content: ''; position: absolute; top: 0; bottom: 0; width: 40px; pointer-events: none; z-index: 20;
+        }
+        /* Left page crease (Even stf__item index since 0-based) */
+        .stf__item:nth-child(even) .page::after { right: 0; background: linear-gradient(to left, rgba(0,0,0,0.15) 0%, rgba(0,0,0,0) 100%); }
+        /* Right page crease */
+        .stf__item:nth-child(odd) .page::after { left: 0; background: linear-gradient(to right, rgba(0,0,0,0.15) 0%, rgba(0,0,0,0) 100%); }
+        
+        /* Remove crease for covers */
+        .stf__item:first-child .page::after, .stf__item:last-child .page::after { display: none; }
+
+        /* Hard Covers (Front and Back) */
+        .page.-hard {
+            background: #0a0a0a; color: white;
+        }
+        .hard-border {
+            border: clamp(6px, 1.5vw, 12px) solid transparent;
+            border-image: linear-gradient(to bottom right, #d4af37, #997a00) 1;
+        }
+
+        /* Aesthetics & Responsive Utilities */
+        .gold-gradient-text { 
+            background: linear-gradient(135deg, #d4af37 0%, #fff6d9 40%, #997a00 60%, #f9df9f 100%); 
+            -webkit-background-clip: text; color: transparent; display: inline-block;
+        }
+        .page-inner { width: 100%; height: 100%; position: relative; z-index: 2; display: flex; flex-direction: column; overflow-y: hidden; }
+        .abs-image { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+        .overlay-dark { position: absolute; inset: 0; background: linear-gradient(to top, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.2) 100%); }
+        
+        /* Fluid Typography to prevent cropping on all widths */
+        .book-title { font-size: clamp(2rem, 5vw, 3.5rem); line-height: 1; }
+        .book-h2 { font-size: clamp(1.2rem, 3vw, 2rem); line-height: 1.1; }
+        .book-h3 { font-size: clamp(0.9rem, 1.5vw, 1.2rem); letter-spacing: 0.1em; }
+        .book-p { font-size: clamp(0.65rem, 1vw, 0.75rem); line-height: 1.6; color: #444; }
+        .book-p-light { font-size: clamp(0.65rem, 1vw, 0.75rem); line-height: 1.6; color: #aaa; }
+        .book-micro { font-size: clamp(0.45rem, 0.8vw, 0.55rem); letter-spacing: 0.2em; text-transform: uppercase; }
+        
+        .p-fluid { padding: clamp(1rem, 3vw, 2.5rem); }
+        .gap-fluid { gap: clamp(0.5rem, 2vw, 1.5rem); }
+    </style>
+</head>
+<body>
+
+    <!-- Loading Screen -->
+    <div id="loader">
+        <div class="scan-line mb-8"></div>
+        <h2 class="font-serif text-gurkha-gold tracking-[0.5em] text-sm md:text-base uppercase">Authenticating</h2>
+        <p class="text-[10px] text-gray-500 mt-4 font-sans tracking-widest uppercase">Decrypting Client Dossier 001</p>
+    </div>
+
+    <!-- 3D Golden Card Entrance -->
+    <div id="canvas-container">
+        <div class="tap-to-open">
+            <div class="mouse-icon"><div class="mouse-wheel"></div></div>
+            <span class="font-serif text-gurkha-gold tracking-[0.3em] text-xs uppercase">Tap to Unlock</span>
+        </div>
+    </div>
+
+    <!-- Flipbook Wrapper -->
+    <div id="flipbook-wrapper">
+        <div id="book" class="relative z-10 shadow-[0_20px_50px_rgba(0,0,0,0.8)]">
+            
+            <!-- PAGE 1: FRONT COVER -->
+            <div class="page -hard">
+                <!-- Dark textured background -->
+                <img src="https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=800&q=80" class="abs-image opacity-30 mix-blend-overlay" alt="Texture">
+                <div class="page-inner p-fluid hard-border">
+                    <div class="flex-1 border border-gurkha-gold/30 p-6 flex flex-col justify-between text-center relative backdrop-blur-sm bg-black/40">
+                        <!-- Corner Accents -->
+                        <div class="absolute top-2 left-2 w-2 h-2 border-t border-l border-gurkha-gold"></div>
+                        <div class="absolute top-2 right-2 w-2 h-2 border-t border-r border-gurkha-gold"></div>
+                        <div class="absolute bottom-2 left-2 w-2 h-2 border-b border-l border-gurkha-gold"></div>
+                        <div class="absolute bottom-2 right-2 w-2 h-2 border-b border-r border-gurkha-gold"></div>
+
+                        <div class="mt-8">
+                            <p class="book-micro text-gurkha-gold mb-4">Official Lookbook // 2026</p>
+                            <h1 class="font-serif book-title font-black tracking-widest gold-gradient-text uppercase">Gurkha</h1>
+                            <h2 class="font-sans text-[clamp(0.5rem,1vw,0.875rem)] tracking-[0.6em] text-gray-400 font-light mt-2 uppercase">Sunglass</h2>
+                        </div>
+                        
+                        <div class="mb-8">
+                            <div class="w-8 h-[1px] bg-gurkha-gold mx-auto mb-6"></div>
+                            <p class="font-editorial text-[clamp(0.875rem,2vw,1rem)] italic text-gray-300">The Golden Edition</p>
+                            <p class="book-micro text-gray-600 mt-6">VIP ACCESS GRANTED</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- PAGE 2: THE STORY OF GURKHA (New Content) -->
+            <div class="page bg-gurkha-paper">
+                <div class="page-inner">
+                    <div class="h-[45%] relative">
+                        <!-- Majestic Nepal / Gorkha hills context -->
+                        <img src="https://images.unsplash.com/photo-1544735716-392fe2489ffa?auto=format&fit=crop&w=800&q=80" class="abs-image object-top" alt="Gorkha Hills">
+                        <div class="absolute inset-0 bg-gradient-to-b from-black/40 to-transparent"></div>
+                    </div>
+                    <div class="flex-1 p-fluid flex flex-col justify-center bg-white">
+                        <h3 class="book-micro text-gurkha-golddark mb-2">01 / Origins</h3>
+                        <h2 class="font-serif book-h2 font-bold text-gurkha-black mb-3 uppercase">The Story<br>Of Gurkha</h2>
+                        <div class="w-8 h-[2px] bg-gurkha-gold mb-4"></div>
+                        <p class="book-p font-editorial italic mb-4 font-bold text-black text-lg">"Some names are created. Some names are earned."</p>
+                        <p class="book-p overflow-y-auto pr-2">
+                            For generations, the name Gurkha has represented courage, resilience, discipline, loyalty, and an unwavering spirit that refuses to back down from challenge.
+                            <br><br>
+                            Its origins trace back to the hills of Gorkha, Nepal — a land known for producing individuals whose determination and character became respected far beyond their homeland.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- PAGE 3: OUR HERITAGE & LEGACY (New Content) -->
+            <div class="page bg-gurkha-paperdark">
+                <div class="page-inner p-fluid flex flex-col justify-center border-l border-gray-300">
+                    <div class="mb-6">
+                        <h3 class="book-micro text-gray-500 mb-1">02 / Heritage</h3>
+                        <h2 class="font-serif book-h2 font-bold text-gurkha-black mb-3 uppercase">Global<br>Legacy</h2>
+                        <p class="book-p text-gray-700">
+                            Over time, the Gurkha name travelled across continents. From Nepal to the United Kingdom and beyond, it became recognized as a symbol of bravery, honor, commitment, and the confidence to move forward when others hesitate.
+                        </p>
+                    </div>
+
+                    <div class="mb-6 relative">
+                        <img src="https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=400&q=80" class="w-full h-24 object-cover opacity-60 mix-blend-multiply" alt="Abstract">
+                        <div class="absolute inset-0 flex items-center justify-center font-serif text-3xl text-gurkha-gold font-black opacity-30">G</div>
+                    </div>
+
+                    <div class="flex-1">
+                        <h2 class="font-serif book-h3 font-bold text-gurkha-black mb-2 uppercase">A New Chapter</h2>
+                        <p class="book-p text-gray-800">
+                            Today, that spirit inspires something new: Gurkha Sunglasses. A modern eyewear brand built on the belief that confidence is not worn on the body—it is carried in the way we see the world. 
+                            <br><br>
+                            We believe eyewear should do more than protect your eyes from sunlight. It should become part of your identity, part of your journey, and part of your everyday confidence.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- PAGE 4: ENGINEERED ARMOR -->
+            <div class="page bg-white">
+                <div class="page-inner">
+                    <div class="h-1/2 relative">
+                        <!-- Updated rugged portrait -->
+                        <img src="https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=800&q=80" class="abs-image object-top" alt="Rugged Portrait">
+                        <div class="absolute inset-0 bg-gradient-to-t from-white to-transparent h-full top-0"></div>
+                    </div>
+                    <div class="flex-1 p-fluid flex flex-col justify-end bg-white pb-8">
+                        <h3 class="book-micro text-gurkha-golddark mb-2">03 / Philosophy</h3>
+                        <h2 class="font-serif book-h2 font-bold text-gurkha-black mb-4 uppercase">Engineered<br>Armor.</h2>
+                        <div class="w-12 h-1 bg-black mb-4"></div>
+                        <p class="book-p font-serif mb-2 font-bold text-black">Redefining premium eyewear with unapologetic power.</p>
+                        <p class="book-p">
+                            Gurkha Sunglasses are built on the principles of strength, resilience, and unyielding style. We don't just create accessories; we forge equipment designed to withstand the extremes while maintaining flawless aesthetics.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- PAGE 5: THE ARSENAL (Product Grid) -->
+            <div class="page bg-white">
+                <div class="page-inner p-fluid border-l border-gray-200 flex flex-col">
+                    <div class="flex justify-between items-end mb-6">
+                        <div>
+                            <h3 class="book-micro text-gray-400 mb-1">04 / The Arsenal</h3>
+                            <h2 class="font-serif book-h2 font-bold text-gurkha-black">Signature<br>Series</h2>
+                        </div>
+                        <span class="font-serif text-4xl text-gray-100 font-black">G</span>
+                    </div>
+
+                    <div class="flex-1 flex flex-col gap-3">
+                        <!-- Hero Product -->
+                        <div class="relative flex-[2] bg-gray-50 overflow-hidden group">
+                            <img src="https://images.unsplash.com/photo-1511499767150-a48a237f0083?auto=format&fit=crop&w=800&q=80" class="abs-image transition-transform duration-700 group-hover:scale-105" alt="Himalayan Black">
+                            <div class="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent p-4 flex flex-col justify-end">
+                                <h4 class="font-sans font-black text-white text-[clamp(0.75rem,1.5vw,1rem)] tracking-widest uppercase">Himalayan Black</h4>
+                                <p class="book-micro text-gurkha-gold mt-1">Masterpiece Collection</p>
+                            </div>
+                        </div>
+
+                        <!-- Split Products -->
+                        <div class="flex gap-3 flex-[1.5]">
+                            <div class="flex-1 bg-gurkha-dark p-3 flex flex-col justify-center border-t-2 border-gurkha-gold relative overflow-hidden">
+                                <div class="absolute right-[-10px] bottom-[-10px] text-4xl text-white/5 font-serif font-black">H</div>
+                                <h4 class="font-sans font-bold text-white text-[clamp(0.6rem,1vw,0.75rem)] tracking-wider">HUSTLR</h4>
+                                <p class="book-micro text-gray-400 mt-1">Bolder. Unfiltered.</p>
+                            </div>
+                            <div class="flex-1 bg-gray-100 p-3 flex flex-col justify-center border-t-2 border-black">
+                                <h4 class="font-sans font-bold text-black text-[clamp(0.6rem,1vw,0.75rem)] tracking-wider">COASTLINE</h4>
+                                <p class="book-micro text-gray-500 mt-1">Ft. Adventure</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- PAGE 6: ENGINEERING SPECS -->
+            <div class="page bg-gurkha-dark text-white">
+                <img src="https://images.unsplash.com/photo-1508296695146-257a814070b4?auto=format&fit=crop&w=800&q=80" class="abs-image opacity-20 grayscale mix-blend-lighten" alt="Macro Metal">
+                <div class="page-inner p-fluid z-10 flex flex-col">
+                    <h3 class="book-micro text-gurkha-gold mb-2">05 / Architecture</h3>
+                    <h2 class="font-serif book-h2 font-bold mb-6 uppercase">Forged for<br>Extremes</h2>
+                    
+                    <div class="space-y-fluid mt-auto flex-1 flex flex-col justify-center">
+                        <div class="relative pl-10 md:pl-12">
+                            <span class="absolute left-0 top-0 font-serif text-2xl md:text-3xl text-gurkha-gold/20 font-black leading-none">01</span>
+                            <h4 class="font-sans font-bold text-xs md:text-sm tracking-wide uppercase text-gurkha-gold">7-Layer Polarized Tech</h4>
+                            <p class="book-p-light mt-1">Vertical polarization filter, complete UV400 protection, and a starburst anti-glare coating.</p>
+                        </div>
+                        <div class="relative pl-10 md:pl-12">
+                            <span class="absolute left-0 top-0 font-serif text-2xl md:text-3xl text-gurkha-gold/20 font-black leading-none">02</span>
+                            <h4 class="font-sans font-bold text-xs md:text-sm tracking-wide uppercase text-gurkha-gold">Titanium Skeleton</h4>
+                            <p class="book-p-light mt-1">Crafted from medical-grade titanium. Ultralight (under 20g) and practically unbreakable under stress.</p>
+                        </div>
+                        <div class="relative pl-10 md:pl-12">
+                            <span class="absolute left-0 top-0 font-serif text-2xl md:text-3xl text-gurkha-gold/20 font-black leading-none">03</span>
+                            <h4 class="font-sans font-bold text-xs md:text-sm tracking-wide uppercase text-gurkha-gold">Infinite-G Hinge</h4>
+                            <p class="book-p-light mt-1">A screwless interlocking hinge design engineered for a lifetime of rigorous daily deployment.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- PAGE 7: LENS TECHNOLOGY -->
+            <div class="page bg-white">
+                <div class="page-inner relative">
+                    <!-- Split Background to show Transitions effect -->
+                    <div class="absolute inset-0 flex">
+                        <div class="w-1/2 h-full bg-gray-100"></div>
+                        <div class="w-1/2 h-full bg-gurkha-dark"></div>
+                    </div>
+                    
+                    <div class="z-10 p-fluid h-full flex flex-col">
+                        <div class="text-center mb-6 md:mb-10">
+                            <h3 class="book-micro text-gray-500 mb-1">06 / Optics</h3>
+                            <h2 class="font-serif book-h3 font-bold uppercase tracking-widest mix-blend-difference text-white">Transitions®</h2>
+                        </div>
+
+                        <div class="flex-1 flex items-center justify-center relative">
+                            <!-- Glasses in center -->
+                            <img src="https://images.unsplash.com/photo-1572635196237-14b3f281503f?auto=format&fit=crop&w=600&q=80" alt="Glasses" class="w-full object-contain mix-blend-multiply drop-shadow-2xl z-20">
+                            <div class="absolute left-2 top-1/4 text-left w-[40%]">
+                                <p class="book-micro text-gray-500">INDOORS</p>
+                                <p class="font-editorial text-[clamp(0.6rem,1vw,0.875rem)] italic mt-1 text-black">Fade to clear</p>
+                            </div>
+                            <div class="absolute right-2 bottom-1/4 text-right w-[40%]">
+                                <p class="book-micro text-gray-400">OUTDOORS</p>
+                                <p class="font-editorial text-[clamp(0.6rem,1vw,0.875rem)] italic mt-1 text-white">Darken instantly</p>
+                            </div>
+                        </div>
+
+                        <div class="mt-auto pt-6 border-t border-gray-300/50 flex justify-between mix-blend-difference text-white">
+                            <div class="text-center">
+                                <span class="block text-lg mb-1">☀️</span>
+                                <span class="book-micro">UV400</span>
+                            </div>
+                            <div class="text-center">
+                                <span class="block text-lg mb-1">💻</span>
+                                <span class="book-micro">Blue Light</span>
+                            </div>
+                            <div class="text-center">
+                                <span class="block text-lg mb-1">👓</span>
+                                <span class="book-micro">Rx Ready</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- PAGE 8: BACK COVER (Concierge) -->
+            <div class="page -hard">
+                <!-- Valid Dark Texture -->
+                <img src="https://images.unsplash.com/photo-1600164318183-a7407bc4bc1e?auto=format&fit=crop&w=800&q=80" class="abs-image opacity-30 object-cover" alt="Back Texture">
+                <!-- Ensuring the Gold Border applies to Back Cover too -->
+                <div class="page-inner p-fluid hard-border flex flex-col justify-center items-center text-center">
+                    
+                    <div class="w-12 h-12 border border-gurkha-gold rounded-full flex items-center justify-center mb-6">
+                        <span class="font-serif text-xl text-gurkha-gold font-black">G</span>
+                    </div>
+
+                    <h2 class="font-serif book-h2 font-bold text-white mb-2 uppercase">Join The Ones</h2>
+                    <p class="book-micro text-gurkha-gold mb-10">Community & Concierge</p>
+                    
+                    <div class="grid grid-cols-2 gap-y-4 gap-x-2 w-full max-w-[220px] mx-auto mb-10 book-micro text-gray-300">
+                        <div class="flex items-center gap-2 text-left"><span class="text-gurkha-gold text-lg">✦</span> Secure Checkout</div>
+                        <div class="flex items-center gap-2 text-left"><span class="text-gurkha-gold text-lg">✦</span> Free Returns</div>
+                        <div class="flex items-center gap-2 text-left"><span class="text-gurkha-gold text-lg">✦</span> Eye Exams</div>
+                        <div class="flex items-center gap-2 text-left"><span class="text-gurkha-gold text-lg">✦</span> Full Warranty</div>
+                    </div>
+
+                    <p class="book-p-light uppercase tracking-widest mb-6 border-t border-gray-800 pt-6 w-full">
+                        Your vision is verified by history.
+                    </p>
+
+                    <a href="https://gurkhasunglass.com/" target="_blank" class="inline-block bg-gurkha-gold text-black font-bold font-sans px-6 py-3 uppercase tracking-[0.2em] text-[10px] hover:bg-white transition duration-300 shadow-[0_0_20px_rgba(212,175,55,0.2)]">
+                        Enter The Store
+                    </a>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        // ==========================================
+        // 1. PROCEDURAL GOLD CANVAS (FLAWLESS FALLBACK)
+        // ==========================================
+        function createProceduralGoldTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 1024;
+            canvas.height = 640; 
+            const ctx = canvas.getContext('2d');
+
+            // Base gradient
+            const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+            gradient.addColorStop(0, '#7a5c00');
+            gradient.addColorStop(0.2, '#d4af37');
+            gradient.addColorStop(0.5, '#fff6d9');
+            gradient.addColorStop(0.8, '#d4af37');
+            gradient.addColorStop(1, '#5c4500');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Add brushed metal noise
+            ctx.fillStyle = "rgba(255,255,255,0.03)";
+            for(let i=0; i<1000; i++) {
+                ctx.fillRect(0, Math.random() * canvas.height, canvas.width, Math.random() * 2);
+            }
+            ctx.fillStyle = "rgba(0,0,0,0.02)";
+            for(let i=0; i<1000; i++) {
+                ctx.fillRect(0, Math.random() * canvas.height, canvas.width, Math.random() * 2);
+            }
+
+            // Outer Border Engraving
+            ctx.strokeStyle = "rgba(0,0,0,0.4)";
+            ctx.lineWidth = 4;
+            ctx.strokeRect(30, 30, canvas.width-60, canvas.height-60);
+            ctx.strokeStyle = "rgba(255,255,255,0.5)";
+            ctx.lineWidth = 2;
+            ctx.strokeRect(32, 32, canvas.width-64, canvas.height-64);
+
+            // Inner Design Line
+            ctx.strokeStyle = "rgba(0,0,0,0.15)";
+            ctx.lineWidth = 1;
+            ctx.strokeRect(45, 45, canvas.width-90, canvas.height-90);
+
+            // GURKHA LOGO (Deep Emboss effect)
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.font = "900 120px Cinzel, serif";
+            
+            // Highlight (bottom right)
+            ctx.fillStyle = "rgba(255,255,255,0.8)";
+            ctx.fillText("GURKHA", canvas.width/2 + 2, canvas.height/2 - 38);
+            
+            // Shadow (top left)
+            ctx.fillStyle = "rgba(0,0,0,0.6)";
+            ctx.fillText("GURKHA", canvas.width/2 - 2, canvas.height/2 - 42);
+            
+            // Main Fill
+            ctx.fillStyle = "#111"; // Dark engraving
+            ctx.fillText("GURKHA", canvas.width/2, canvas.height/2 - 40);
+
+            // Subtitle
+            ctx.font = "400 24px Inter, sans-serif";
+            canvas.style.letterSpacing = "12px"; 
+            
+            // Engrave Subtitle
+            ctx.fillStyle = "rgba(255,255,255,0.6)";
+            ctx.fillText("THE GOLDEN EDITION", canvas.width/2 + 1, canvas.height/2 + 61);
+            ctx.fillStyle = "#222";
+            ctx.fillText("THE GOLDEN EDITION", canvas.width/2, canvas.height/2 + 60);
+
+            // Card Number & Brand Mark
+            ctx.textAlign = "left";
+            ctx.font = "600 20px Inter, monospace";
+            ctx.fillStyle = "rgba(0,0,0,0.5)";
+            ctx.fillText("VIP / 001", 60, canvas.height - 60);
+
+            ctx.textAlign = "right";
+            ctx.font = "400 16px Inter, sans-serif";
+            ctx.fillText("EST. 2026", canvas.width - 60, canvas.height - 60);
+
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.anisotropy = 16;
+            return texture;
+        }
+
+        let isCardClicked = false;
+        let cardMesh;
+
+        function init3D() {
+            const container = document.getElementById('canvas-container');
+            const scene = new THREE.Scene();
+            
+            const camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.z = 6;
+
+            const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.toneMappingExposure = 1.2;
+            container.appendChild(renderer.domElement);
+
+            const cardTexture = createProceduralGoldTexture();
+            const geometry = new THREE.BoxGeometry(3.4, 2.15, 0.03); 
+            
+            const material = new THREE.MeshPhysicalMaterial({ 
+                map: cardTexture,
+                color: 0xffeebb, 
+                metalness: 1.0,  
+                roughness: 0.2, 
+                envMapIntensity: 1.5,
+                clearcoat: 0.5,
+                clearcoatRoughness: 0.1
+            });
+
+            const edgeMaterial = new THREE.MeshStandardMaterial({
+                color: 0xd4af37, metalness: 1, roughness: 0.3
+            });
+            const materials = [edgeMaterial, edgeMaterial, edgeMaterial, edgeMaterial, material, material];
+
+            cardMesh = new THREE.Mesh(geometry, materials);
+            cardMesh.rotation.x = 0.2;
+            cardMesh.rotation.y = -0.3;
+            scene.add(cardMesh);
+
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.3);
+            scene.add(ambientLight);
+            
+            const spotLight = new THREE.SpotLight(0xffeeb1, 2.5);
+            spotLight.position.set(5, 5, 5);
+            spotLight.angle = Math.PI / 6;
+            spotLight.penumbra = 0.5;
+            scene.add(spotLight);
+
+            const rimLight = new THREE.DirectionalLight(0xaaccff, 1);
+            rimLight.position.set(-5, -2, -2);
+            scene.add(rimLight);
+
+            const fillLight = new THREE.PointLight(0xffffff, 0.5);
+            fillLight.position.set(0, 0, 4);
+            scene.add(fillLight);
+
+            setTimeout(() => {
+                const loader = document.getElementById('loader');
+                loader.style.opacity = '0';
+                setTimeout(() => loader.style.display = 'none', 1000);
+            }, 1500);
+
+            let time = 0;
+            let targetRotationX = 0;
+            let targetRotationY = 0;
+            let mouseX = 0;
+            let mouseY = 0;
+
+            function animate() {
+                requestAnimationFrame(animate);
+                
+                if (!isCardClicked) {
+                    time += 0.005;
+                    cardMesh.position.y = Math.sin(time * 2) * 0.15;
+                    targetRotationY = Math.sin(time) * 0.1 + (mouseX * 0.4);
+                    targetRotationX = Math.cos(time * 1.2) * 0.1 + (mouseY * 0.4);
+                    
+                    cardMesh.rotation.y += (targetRotationY - cardMesh.rotation.y) * 0.05;
+                    cardMesh.rotation.x += (targetRotationX - cardMesh.rotation.x) * 0.05;
+                } else {
+                    cardMesh.rotation.y += (0 - cardMesh.rotation.y) * 0.08;
+                    cardMesh.rotation.x += (0 - cardMesh.rotation.x) * 0.08;
+                    camera.position.z += (2.5 - camera.position.z) * 0.05;
+                }
+
+                renderer.render(scene, camera);
+            }
+
+            document.addEventListener('mousemove', (event) => {
+                if(!isCardClicked) {
+                    mouseX = (event.clientX / window.innerWidth) * 2 - 1;
+                    mouseY = -(event.clientY / window.innerHeight) * 2 + 1;
+                }
+            });
+
+            document.addEventListener('touchmove', (event) => {
+                if(!isCardClicked && event.touches.length > 0) {
+                    mouseX = (event.touches[0].clientX / window.innerWidth) * 2 - 1;
+                    mouseY = -(event.touches[0].clientY / window.innerHeight) * 2 + 1;
+                }
+            });
+
+            animate();
+
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
+        }
+
+        init3D();
+
+        // ==========================================
+        // 3. UI/UX: FLIPBOOK TRANSITION
+        // ==========================================
+        let flipbookInitialized = false;
+
+        document.getElementById('canvas-container').addEventListener('click', function() {
+            if (isCardClicked) return;
+            isCardClicked = true;
+
+            document.querySelector('.tap-to-open').style.opacity = '0';
+            this.style.opacity = '0';
+            this.style.pointerEvents = 'none';
+            
+            setTimeout(() => {
+                this.style.display = 'none';
+                
+                const flipbookWrapper = document.getElementById('flipbook-wrapper');
+                flipbookWrapper.style.pointerEvents = 'auto';
+                flipbookWrapper.style.opacity = '1';
+                
+                if (!flipbookInitialized) {
+                    initFlipbook();
+                    flipbookInitialized = true;
+                }
+            }, 1200); 
+        });
+
+        function initFlipbook() {
+            // Adaptive sizing to prevent cropping on any width/height
+            const isMobile = window.innerWidth < 768;
+            
+            const pageFlip = new St.PageFlip(document.getElementById("book"), {
+                width: isMobile ? 320 : 450, 
+                height: isMobile ? 480 : 600,
+                size: "stretch", // Stretch proportionally inside bounds
+                minWidth: 280,
+                maxWidth: 600,
+                minHeight: 400,
+                maxHeight: 850,
+                maxShadowOpacity: 0.6, 
+                showCover: true, // Forces Page 1 to be right-side, Page 8 to be left-side
+                mobileScrollSupport: false,
+                usePortrait: true // Automatically switch to single-page portrait on narrow screens
+            });
+
+            pageFlip.loadFromHTML(document.querySelectorAll(".page"));
+            
+            // Auto turn to first spread to hint interactivity
+            setTimeout(() => {
+                if(pageFlip.getCurrentPageIndex() === 0) {
+                     pageFlip.flipNext();
+                }
+            }, 2000);
+        }
+    </script>
+</body>
+</html>
